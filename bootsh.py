@@ -4,7 +4,7 @@ from pathlib import Path
 
 class BootSh:
     _HERE_DOC = ': <<-'
-    _SEP_DOC = ': <<_'
+    __SEP_DOC = ': <<_'
 
     def __init__(self, **kwargs):
         bootsh = Path(__file__)
@@ -27,7 +27,7 @@ class BootSh:
                     replace_str = s[len(self._HERE_DOC):]
                 else:
                     strf.write(s)
-                    if s.startswith(self._SEP_DOC):
+                    if s.startswith(self.__SEP_DOC):
                         break
             return strf.getvalue()
 
@@ -38,5 +38,5 @@ class BootSh:
 
     def get_body_bytes(self):
         b = self.body.encode()
-        assert len(b) <= 2048
+        assert len(b) <= 0x8000 - 512
         return b
