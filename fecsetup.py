@@ -9,6 +9,8 @@ from typing import Final
 import numpy as np
 from beartype import beartype
 
+from bootsh import BootSh
+
 
 @beartype
 def mkisofs(*targs: str, **kwargs: str) -> int:
@@ -43,6 +45,12 @@ class FECSetup:
         self.isofile = Path(isofile)
         self.iso_s = (os.path.getsize(self.isofile) + self._BLK_SZ - 1) // self._BLK_SZ
         self.hash_s = self._hs(self.iso_s)
+        self.fec_roots = 24
+        self.sh = BootSh(
+            ISO_S=self.iso_s * self._BLK_SZ,
+            HASH_S=self.hash_s * self._BLK_SZ,
+            FEC_ROOTS=self.fec_roots,
+        )
 
     @beartype
     def _hs(self, ds: int, superblock=True) -> int:
@@ -53,8 +61,8 @@ class FECSetup:
         return h
 
     @beartype
-    def _veriysetup(self, hashfile: os.PathLike, recfile: os.PathLike, fec_roots: int = 24) -> OrderedDict:
-        args = ['veritysetup', 'format', '--salt=-', '--hash=md5', f'--fec-roots={fec_roots}',
+    def _veriysetup(self, hashfile: os.PathLike, recfile: os.PathLike) -> bytes:
+        args = ['veritysetup', 'format', '--salt=-', '--hash=md5', f'--fec-roots={self.fec_roots}',
                 f'--data-block-size={self._BLK_SZ}', f'--hash-block-size={self._BLK_SZ}',
                 f'--fec-device={os.fspath(recfile)}', os.fspath(self.isofile), os.fspath(hashfile)]
         msg = subprocess.check_output(args, text=True, stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -62,20 +70,17 @@ class FECSetup:
         for s in msg.splitlines():
             k, *v = s.split(':', maxsplit=1)
             ret[k.strip()] = v[0].strip() if v else None
-        return ret
+
+        root_hash = bytes.fromhex(ret['Root hash'])
+        assert len(root_hash) == self._HASH_SZ
+        assert int(ret['Data blocks']) == self.iso_s
+        assert int(ret['Data block size']) == self._BLK_SZ and int(ret['Hash block size']) == self._BLK_SZ
+        assert ret['Salt'] == '-'
+
+        return root_hash
 
     @beartype
-    def formatfec(self) -> int:
-        truncate(self.isofile, f'%{self._BLK_SZ}')
-        assert os.path.getsize(self.isofile) == self.iso_s * self._BLK_SZ
-
-        hashfile = self.isofile.with_suffix('.hash')
-        fecfile = self.isofile.with_suffix('.fec')
-        hashfile.unlink(missing_ok=True)
-        fecfile.unlink(missing_ok=True)
-        msg = self._veriysetup(hashfile, fecfile)
-        assert os.path.getsize(hashfile) == self.hash_s * self._BLK_SZ
-
+    def _combine_with_root_hash(self, hashfile: Path, fecfile: Path, root_hash: bytes):
         with self.isofile.open('r+b') as isofd, hashfile.open('rb') as hashfd, fecfile.open('rb') as fecfd:
             isofd.seek(self.iso_s * self._BLK_SZ)
             shutil.copyfileobj(hashfd, isofd)
@@ -84,12 +89,6 @@ class FECSetup:
 
         hashfile.unlink()
         fecfile.unlink()
-
-        root_hash = bytes.fromhex(msg['Root hash'])
-        assert len(root_hash) == self._HASH_SZ
-        assert int(msg['Data blocks']) == self.iso_s
-        assert int(msg['Data block size']) == self._BLK_SZ and int(msg['Hash block size']) == self._BLK_SZ
-        assert msg['Salt'] == '-'
 
         truncate(self.isofile, '%32K')
 
@@ -100,6 +99,25 @@ class FECSetup:
             isofd.seek(root_off)
             isofd.write(root_hash)
 
-        print(msg['Root hash'])
+    @beartype
+    def formatfec(self) -> int:
+
+        truncate(self.isofile, f'%{self._BLK_SZ}')
+        assert os.path.getsize(self.isofile) == self.iso_s * self._BLK_SZ
+        with self.isofile.open('r+b') as f:
+            f.write(self.sh.get_header_bytes())
+            f.seek(512)
+            f.write(self.sh.get_body_bytes())
+
+        hashfile = self.isofile.with_suffix('.hash')
+        fecfile = self.isofile.with_suffix('.fec')
+        hashfile.unlink(missing_ok=True)
+        fecfile.unlink(missing_ok=True)
+        root_hash = self._veriysetup(hashfile, fecfile)
+
+        assert os.path.getsize(hashfile) == self.hash_s * self._BLK_SZ
+        self._combine_with_root_hash(hashfile, fecfile, root_hash)
+
+        print(root_hash.hex())
         print(self.iso_s, self.hash_s)
         return 0
