@@ -13,6 +13,14 @@ from beartype import beartype
 from bootsh import BootSh
 
 
+def sizeof_fmt(num, suffix="B"):
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
+
+
 @beartype
 def mkisofs(*targs: str, **kwargs: str) -> int:
     args = ['xorriso', '-as', 'mkisofs', '-verbose', '-iso-level', '4', '-r', '-J', '-joliet-long', '-no-pad']
@@ -38,7 +46,8 @@ def truncate(isofile: os.PathLike, s_size: str) -> None:
 
 class VolID:
     def __init__(self, s: str):
-        if not s.isidentifier():
+        s = s.strip()
+        if len(s) > 15 or not s.isascii() or not s.isidentifier():
             raise ValueError(s)
         self.s = s
 
@@ -148,8 +157,17 @@ class FECSetup:
         root_hash = self._veriysetup(hashfile, fecfile)
 
         assert os.path.getsize(hashfile) == self.hash_s * self._BLK_SZ
+        fec_size = os.path.getsize(fecfile)
+
         self._combine_with_root_hash(hashfile, fecfile, root_hash)
 
-        print(root_hash.hex())
-        print(self.iso_s, self.hash_s)
+        print('Root hash:', root_hash.hex())
+        print('Data:', sizeof_fmt(self.iso_s * self._BLK_SZ),
+              'Hash:', sizeof_fmt(self.hash_s * self._BLK_SZ),
+              'Code:', sizeof_fmt(fec_size))
+
+        iso_s, rem = divmod(os.path.getsize(self.isofile), self._BLK_SZ)
+        assert not rem
+        print('ISO Sectors:', iso_s, 'sectors')
+
         return 0
