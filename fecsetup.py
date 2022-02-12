@@ -1,39 +1,61 @@
 import os
+import shutil
 import subprocess
+import sys
 from collections import OrderedDict
 from pathlib import Path
 from typing import Final
 
 import numpy as np
+from beartype import beartype
 
-from ficlonerange import file_clone_range
+
+@beartype
+def mkisofs(*targs: str, **kwargs: str) -> int:
+    args = ['xorriso', '-as', 'mkisofs', '-verbose', '-iso-level', '4', '-r', '-J', '-joliet-long', '-no-pad']
+    for k, t in kwargs.items():
+        args.append(f"-{k}")
+        args.append(f'{t}')
+    for t in targs:
+        args.append(f"{t}")
+    with subprocess.Popen(
+            args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as p:
+        for s in p.stdout:
+            sys.stdout.write(s)
+    if p.returncode != 0:
+        raise subprocess.CalledProcessError(p.returncode, p.args)
+    return p.returncode
 
 
-def truncate(isofile, size):
-    args = ['truncate', '--no-create', f'--size={size}', os.fspath(isofile)]
+@beartype
+def truncate(isofile: os.PathLike, s_size: str):
+    args = ['truncate', '--no-create', f'--size={s_size}', os.fspath(isofile)]
     subprocess.check_call(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class FECSetup:
-    _BLK_SZ: Final = 4096
-    _SB_SZ: Final = 512
-    _HASH_SZ: Final = 16
-    _HASH_DIV: Final = _BLK_SZ // _HASH_SZ
+    _BLK_SZ: Final[int] = 2048
+    _SB_SZ: Final[int] = 512
+    _HASH_SZ: Final[int] = 16
+    _HASH_DIV: Final[int] = _BLK_SZ // _HASH_SZ
 
-    def __init__(self, isofile):
+    def __init__(self, isofile: os.PathLike):
         self.isofile = Path(isofile)
         self.iso_s = (os.path.getsize(self.isofile) + self._BLK_SZ - 1) // self._BLK_SZ
         self.hash_s = self._hs(self.iso_s)
 
-    def _hs(self, ds, superblock=True):
+    @beartype
+    def _hs(self, ds: int, superblock=True) -> int:
         h = int(superblock)
         while ds:
             ds, rem = divmod(ds, self._HASH_DIV)
-            h += ds + bool(rem)
+            h += ds + 1
         return h
 
-    def _veriysetup(self, hashfile, recfile, fec_roots=24):
+    @beartype
+    def _veriysetup(self, hashfile: os.PathLike, recfile: os.PathLike, fec_roots: int = 24) -> OrderedDict:
         args = ['veritysetup', 'format', '--salt=-', '--hash=md5', f'--fec-roots={fec_roots}',
+                f'--data-block-size={self._BLK_SZ}', f'--hash-block-size={self._BLK_SZ}',
                 f'--fec-device={os.fspath(recfile)}', os.fspath(self.isofile), os.fspath(hashfile)]
         msg = subprocess.check_output(args, text=True, stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         ret = OrderedDict()
@@ -42,7 +64,8 @@ class FECSetup:
             ret[k.strip()] = v[0].strip() if v else None
         return ret
 
-    def formatfec(self):
+    @beartype
+    def formatfec(self) -> int:
         truncate(self.isofile, f'%{self._BLK_SZ}')
         assert os.path.getsize(self.isofile) == self.iso_s * self._BLK_SZ
 
@@ -54,8 +77,10 @@ class FECSetup:
         assert os.path.getsize(hashfile) == self.hash_s * self._BLK_SZ
 
         with self.isofile.open('r+b') as isofd, hashfile.open('rb') as hashfd, fecfile.open('rb') as fecfd:
-            file_clone_range(hashfd.fileno(), isofd.fileno(), d=self.iso_s * self._BLK_SZ)
-            file_clone_range(fecfd.fileno(), isofd.fileno(), d=(self.iso_s + self.hash_s) * self._BLK_SZ)
+            isofd.seek(self.iso_s * self._BLK_SZ)
+            shutil.copyfileobj(hashfd, isofd)
+            isofd.seek((self.iso_s + self.hash_s) * self._BLK_SZ)
+            shutil.copyfileobj(fecfd, isofd)
 
         hashfile.unlink()
         fecfile.unlink()
@@ -75,5 +100,6 @@ class FECSetup:
             isofd.seek(root_off)
             isofd.write(root_hash)
 
-        print(r)
-        return msg
+        print(msg['Root hash'])
+        print(self.iso_s, self.hash_s)
+        return 0
