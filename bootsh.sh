@@ -3,7 +3,6 @@ set -euo pipefail
 : <<-VARS_END
 ISO_S=
 HASH_S=
-FEC_ROOTS=
 DMID=
 VARS_END
 : <<_MBR_SEP
@@ -13,7 +12,8 @@ IMG_DEV="${BASH_SOURCE[0]}"
 [[ "$(id -u)" -eq "0" ]] || exec sudo bash "$IMG_DEV"
 
 ROOT_HASH=$(od -j$((ISO_S + 512)) -N16 -tx1 -An "$IMG_DEV" | tr -d '\n ')
-echo "Root Hash is $ROOT_HASH"
+FEC_ROOTS=$(od -j$((ISO_S + 528)) -N1 -tu1 -An "$IMG_DEV" | tr -d '\n ')
+echo "Root Hash is $ROOT_HASH, Fec Roots is $FEC_ROOTS"
 
 EXTRA_CLEANUP=""
 if [[ -f "$IMG_DEV" ]]; then

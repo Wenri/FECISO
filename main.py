@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
+
 import argparse
 import sys
-# -V FLY1 -o test.iso projtest
 from pathlib import Path
 
 from beartype import beartype
