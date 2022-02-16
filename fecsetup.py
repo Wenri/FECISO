@@ -85,10 +85,9 @@ class FECSetup:
         self.sh = BootSh(
             ISO_S=self.iso_s * self._BLK_SZ,
             HASH_S=self.hash_s * self._BLK_SZ,
-            FEC_ROOTS=self.fec_roots,
             DMID=f'"{dmid.get_dmid()}"'
         )
-        self.queue = asyncio.BoundedSemaphore(value=os.cpu_count())
+        self.queue = None
 
     @beartype
     def _hs(self, ds: int, superblock=True) -> int:
@@ -164,8 +163,7 @@ class FECSetup:
             return 24 - idx.item(0)
         return 0
 
-    @beartype
-    async def _veriysetup(self, hashfile: Path, fecfile: Path, fec_roots: int) -> bytes:
+    async def _veriysetup(self, hashfile: Path, fecfile: Path, fec_roots: int, queue: asyncio.Semaphore) -> bytes:
         hashfile.unlink(missing_ok=True)
         fecfile.unlink(missing_ok=True)
 
@@ -173,14 +171,17 @@ class FECSetup:
                 f'--data-block-size={self._BLK_SZ}', f'--hash-block-size={self._BLK_SZ}',
                 f'--fec-device={os.fspath(fecfile)}', os.fspath(self.isofile), os.fspath(hashfile)]
 
-        await self.queue.acquire()
+        proc = None
+        await queue.acquire()
         try:
-            msg = await asyncio.subprocess.create_subprocess_exec(
+            proc = await asyncio.subprocess.create_subprocess_exec(
                 *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT)
-            msg, _ = await msg.communicate()
+            msg, _ = await proc.communicate()
         finally:
-            self.queue.release()
+            if proc is not None and proc.returncode is None:
+                proc.terminate()
+            queue.release()
 
         assert os.path.getsize(hashfile) == self.hash_s * self._BLK_SZ
 
@@ -197,10 +198,10 @@ class FECSetup:
 
         return root_hash
 
-    @beartype
     async def _try_different_fecroots(self):
-        co_list = set(self._veriysetup(self.isofile.with_suffix(f'.hash_{i}'), self.isofile.with_suffix(f'.fec_{i}'), i)
-                      for i in range(self.fec_roots, 1, -1))
+        q = asyncio.BoundedSemaphore(value=os.cpu_count())
+        co_list = set(self._veriysetup(self.isofile.with_suffix(f'.hash_{i}'), self.isofile.with_suffix(f'.fec_{i}'),
+                                       i, q) for i in range(self.fec_roots, 1, -1))
         root_hash = None
         total_s = self.hash_s * self._BLK_SZ * (self.fec_roots - 1)
         total_s += sum(self._fec_len(self.iso_s + self.hash_s, i) for i in range(self.fec_roots, 1, -1))
