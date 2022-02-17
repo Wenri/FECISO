@@ -9,19 +9,12 @@ from pathlib import Path
 from typing import Final
 
 import numpy as np
+import psutil
 from beartype import beartype
 from tqdm import tqdm
 
 from bootsh import BootSh
-from capacity import DiscCapacity
-
-
-def sizeof_fmt(num, suffix="B"):
-    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
-        if abs(num) < 1024.0:
-            return f"{num:3.1f}{unit}{suffix}"
-        num /= 1024.0
-    return f"{num:.1f}Yi{suffix}"
+from capacity import DiscCapacity, NumberSegments, sizeof_fmt
 
 
 async def mkisofs(*targs: str, **kwargs: str) -> int:
@@ -83,8 +76,9 @@ class FECSetup:
             HASH_S=self.hash_s * self._BLK_SZ,
             DMID=f'"{dmid.get_dmid()}"'
         )
-        fec_preview_count = min(self.fec_roots - 1, os.cpu_count())
-        self.fec_preview_set = frozenset(round(a.item()) for a in np.linspace(self.fec_roots, 2, num=fec_preview_count))
+        cpu_count = psutil.cpu_count(logical=False)
+        fec_preview_count = min(self.fec_roots - 1, cpu_count) if cpu_count else self.fec_roots - 1
+        self.fec_preview_set = tuple(round(a.item()) for a in np.linspace(self.fec_roots, 2, num=fec_preview_count))
 
     @beartype
     def _hs(self, ds: int, superblock=True) -> int:
@@ -235,16 +229,19 @@ class FECSetup:
         for i in self.fec_preview_set:
             fecfile = self.isofile.with_suffix(f'.fec_{i}')
             fec_s = (os.path.getsize(fecfile) + self._BLK_SZ - 1) // self._BLK_SZ
-            size_str = sizeof_fmt((disc_s - self.iso_s - self.hash_s - fec_s) * self._BLK_SZ)
-            if prev_str != size_str:
-                if prev_str is None:
-                    print(f'{i}-', end='')
-                else:
-                    print(f'{i + 1}:{prev_str} {i}-', end='')
-                prev_str = size_str
+            size_s = (disc_s - self.iso_s - self.hash_s - fec_s) * self._BLK_SZ
+            if prev_str != size_s:
+                if prev_str:
+                    print(prev_str, end=' ')
+                prev_str = NumberSegments(size_s)
+            prev_str.add_val(i)
 
-        print(f'2:{prev_str}')
-        sel_roots = int(input('Select your lucky number: '))
+        print(prev_str)
+        while True:
+            sel_roots = int(input('Select your lucky number: '))
+            if sel_roots in self.fec_preview_set:
+                break
+            print('Your selection must be one of', self.fec_preview_set)
 
         hashfile = self.isofile.with_suffix(f'.hash_{sel_roots}')
         fecfile = self.isofile.with_suffix(f'.fec_{sel_roots}')

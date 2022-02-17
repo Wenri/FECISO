@@ -1,4 +1,14 @@
+from io import StringIO
+
 import numpy as np
+
+
+def sizeof_fmt(num, suffix="B"):
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
 
 
 class DiscCapacity:
@@ -17,3 +27,44 @@ class DiscCapacity:
             return self._DiscName[idx[i]], self._DiscSectors[idx[i]]
         else:
             return None, -1
+
+
+class NumberSegments:
+    """
+    if first:
+        print(f'{i}-', end='')
+    else:
+        print(f'{i + 1}:{prev_str} {i}-', end='')
+    prev_str = size_str
+    """
+
+    def __init__(self, rep_str, *init_vals):
+        self.rep_str = sizeof_fmt(rep_str)
+        self.number = set(init_vals)
+
+    def __eq__(self, other):
+        return self.rep_str == sizeof_fmt(other)
+
+    def add_val(self, val):
+        self.number.add(val)
+
+    def __str__(self):
+        if not self.number:
+            return f'<empty>:{self.rep_str}'
+        prev, *number = sorted(self.number, reverse=True)
+        fold = False
+        with StringIO() as s:
+            print(prev, end='', file=s)
+            for i in number:
+                if prev == i + 1:
+                    fold = True
+                else:
+                    if fold:
+                        s.write(f'-{prev}')
+                        fold = False
+                    s.write(f',{i}')
+                prev = i
+            if fold:
+                s.write(f'-{prev}')
+            s.write(f':{self.rep_str}')
+            return s.getvalue()
