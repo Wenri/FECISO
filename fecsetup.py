@@ -3,7 +3,6 @@ import io
 import os
 import shutil
 import struct
-import subprocess
 import sys
 from collections import OrderedDict
 from pathlib import Path
@@ -25,27 +24,25 @@ def sizeof_fmt(num, suffix="B"):
     return f"{num:.1f}Yi{suffix}"
 
 
-@beartype
-def mkisofs(*targs: str, **kwargs: str) -> int:
+async def mkisofs(*targs: str, **kwargs: str) -> int:
     args = ['xorriso', '-as', 'mkisofs', '-verbose', '-iso-level', '4', '-r', '-J', '-joliet-long', '-no-pad']
     for k, t in kwargs.items():
         args.append(f"-{k}")
         args.append(f'{t}')
     for t in targs:
         args.append(f"{t}")
-    with subprocess.Popen(
-            args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as p:
-        for s in p.stdout:
-            sys.stdout.write(s)
-    if p.returncode != 0:
-        raise subprocess.CalledProcessError(p.returncode, p.args)
-    return p.returncode
-
-
-@beartype
-def truncate(isofile: os.PathLike, s_size: str) -> None:
-    args = ['truncate', '--no-create', f'--size={s_size}', os.fspath(isofile)]
-    subprocess.check_call(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = None
+    try:
+        proc = await asyncio.subprocess.create_subprocess_exec(
+            *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        while not proc.stdout.at_eof():
+            s = await proc.stdout.readline()
+            sys.stdout.write(s.decode())
+        await proc.communicate()
+    finally:
+        if proc is not None and proc.returncode is None:
+            proc.terminate()
+    return proc.returncode
 
 
 class VolID:
@@ -70,7 +67,6 @@ class FECSetup:
     _CLUSTER_SZ: Final[int] = 64 * 1024
 
     def __init__(self, isofile: os.PathLike, dmid: VolID):
-        self.fec_roots = 24
         self.isofile = Path(isofile)
         self.iso_s = (os.path.getsize(self.isofile) + self._BLK_SZ - 1) // self._BLK_SZ
         self.hash_s = self._hs(self.iso_s)
@@ -87,7 +83,8 @@ class FECSetup:
             HASH_S=self.hash_s * self._BLK_SZ,
             DMID=f'"{dmid.get_dmid()}"'
         )
-        self.queue = None
+        fec_preview_count = min(self.fec_roots - 1, os.cpu_count())
+        self.fec_preview_set = frozenset(round(a.item()) for a in np.linspace(self.fec_roots, 2, num=fec_preview_count))
 
     @beartype
     def _hs(self, ds: int, superblock=True) -> int:
@@ -200,20 +197,21 @@ class FECSetup:
 
     async def _try_different_fecroots(self):
         q = asyncio.BoundedSemaphore(value=os.cpu_count())
+
         co_list = set(self._veriysetup(self.isofile.with_suffix(f'.hash_{i}'), self.isofile.with_suffix(f'.fec_{i}'),
-                                       i, q) for i in range(self.fec_roots, 1, -1))
+                                       i, q) for i in self.fec_preview_set)
         root_hash = None
         total_s = self.hash_s * self._BLK_SZ * (self.fec_roots - 1)
-        total_s += sum(self._fec_len(self.iso_s + self.hash_s, i) for i in range(self.fec_roots, 1, -1))
+        total_s += sum(self._fec_len(self.iso_s + self.hash_s, i) for i in self.fec_preview_set)
         with tqdm(total=total_s, unit='B', dynamic_ncols=True, unit_scale=True, leave=False,
-                  desc=f'Roots({self.fec_roots}-2)') as pbar:
+                  desc=f'Roots({self.fec_roots}-2,{len(self.fec_preview_set)})') as pbar:
             while True:
                 done, co_list = await asyncio.wait(co_list, timeout=1)
                 for t in done:
-                    if root_hash:
-                        assert t.result() == root_hash
-                    else:
+                    if root_hash is None:
                         root_hash = t.result()
+                    else:
+                        assert t.result() == root_hash
                 ps = 0
                 for i in range(self.fec_roots, 1, -1):
                     hashfile = self.isofile.with_suffix(f'.hash_{i}')
@@ -234,7 +232,7 @@ class FECSetup:
     def _select_lucky_fec(self):
         disc_s = self.free_s.total_s
         prev_str = None
-        for i in range(self.fec_roots, 1, -1):
+        for i in self.fec_preview_set:
             fecfile = self.isofile.with_suffix(f'.fec_{i}')
             fec_s = (os.path.getsize(fecfile) + self._BLK_SZ - 1) // self._BLK_SZ
             size_str = sizeof_fmt((disc_s - self.iso_s - self.hash_s - fec_s) * self._BLK_SZ)
@@ -258,12 +256,11 @@ class FECSetup:
             self.isofile.with_suffix(f'.hash_{i}').unlink(missing_ok=True)
             self.isofile.with_suffix(f'.fec_{i}').unlink(missing_ok=True)
 
-    @beartype
-    def formatfec(self) -> int:
+    async def formatfec(self) -> int:
         self._patch_iso()
 
         try:
-            root_hash = asyncio.run(self._try_different_fecroots())
+            root_hash = await self._try_different_fecroots()
             hashfile, fecfile, sel_roots = self._select_lucky_fec()
             fec_size = os.path.getsize(fecfile)
             self._combine_with_root_hash(hashfile, fecfile, root_hash, sel_roots)

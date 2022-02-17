@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -18,14 +19,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-@beartype
-def main(opt: argparse.Namespace) -> int:
+async def main(opt: argparse.Namespace) -> int:
     opt.output.unlink(missing_ok=True)
-    mkisofs(opt.data_dir, V=opt.volid.get_volid(), o=opt.output)
+    ret = await mkisofs(opt.data_dir, V=opt.volid.get_volid(), o=opt.output)
+    if ret:
+        return ret
     fec = FECSetup(opt.output, dmid=opt.volid)
-    fec.formatfec()
-    return 0
+    ret = await fec.formatfec()
+    return ret
 
 
 if __name__ == '__main__':
-    sys.exit(main(parse_args()))
+    sys.exit(asyncio.run(main(parse_args())))
