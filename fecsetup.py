@@ -238,9 +238,12 @@ class FECSetup:
 
         print(prev_str)
         while True:
-            sel_roots = int(input('Select your lucky number: '))
-            if sel_roots in self.fec_preview_set:
-                break
+            try:
+                sel_roots = int(input('Select your lucky number: '))
+                if sel_roots in self.fec_preview_set:
+                    break
+            except ValueError:
+                pass
             print('Your selection must be one of', self.fec_preview_set)
 
         hashfile = self.isofile.with_suffix(f'.hash_{sel_roots}')

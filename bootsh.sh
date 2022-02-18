@@ -14,17 +14,53 @@ IMG_DEV="${BASH_SOURCE[0]}"
 ROOT_HASH=$(od -j$((ISO_S + 512)) -N16 -tx1 -An "$IMG_DEV" | tr -d '\n ')
 FEC_ROOTS=$(od -j$((ISO_S + 528)) -N1 -tu1 -An "$IMG_DEV" | tr -d '\n ')
 echo "Root Hash is $ROOT_HASH, Fec Roots is $FEC_ROOTS"
+echo "Reading Hash into memory..."
 
-EXTRA_CLEANUP=""
-if [[ -f "$IMG_DEV" ]]; then
-  IMG_DEV="$(losetup -f --show "$IMG_DEV")"
-  EXTRA_CLEANUP=" && sudo losetup -d $IMG_DEV"
-fi
-echo "Using Device $IMG_DEV"
+HASH_DEV=$(
+  python3 - "$ISO_S" "$IMG_DEV" "$DMID" <<EOF
+import argparse
+import os
+import sys
+from pathlib import Path
+from subprocess import run, DEVNULL
 
-veritysetup -v --ignore-corruption --hash-offset=$ISO_S "--fec-device=$IMG_DEV" \
-  --fec-offset=$((ISO_S + HASH_S)) --fec-roots=$FEC_ROOTS open "$IMG_DEV" "$DMID" "$IMG_DEV" \
-  "$ROOT_HASH"
+def _hs(ds, superblock=True, _hash_div=128):
+    h = int(superblock)
+    while ds:
+        ds, rem = divmod(ds, _hash_div)
+        h += ds + 1
+    return h
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument('iso_s', type=int)
+    p.add_argument('devstr', type=Path)
+    p.add_argument('dmid', type=str)
+    return p.parse_args()
+
+def main(opt):
+    sector_size = 2048
+    total_size = _hs(opt.iso_s // sector_size) * sector_size
+    fd = os.memfd_create(opt.dmid)
+    with os.fdopen(fd, 'w+b', closefd=False) as memf, open(opt.devstr, 'rb') as isof:
+        ret = os.sendfile(memf.fileno(), isof.fileno(), opt.iso_s, total_size)
+    assert total_size == ret
+    args = ['losetup', '-r', '--show', '-b', '2048', '-f', f'/dev/fd/{fd}']
+    return run(args, stdin=DEVNULL, pass_fds=(fd,)).returncode
+
+if __name__ == '__main__':
+    sys.exit(main(parse_args()))
+EOF
+)
+echo "Using Hash Device $HASH_DEV"
+
+FEC_DEV="$(losetup -r --show -o "$((ISO_S + HASH_S))" -b 2048 -f "$IMG_DEV")"
+echo "Using FEC Device $FEC_DEV"
+
+veritysetup -v --ignore-corruption "--fec-roots=$FEC_ROOTS" \
+  "--fec-device=$FEC_DEV" open "$IMG_DEV" "$DMID" "$HASH_DEV" "$ROOT_HASH" || :
+losetup -d "$HASH_DEV"
+losetup -d "$FEC_DEV"
 
 DM_FILE="/dev/mapper/$DMID"
 
@@ -34,7 +70,7 @@ You may mount the ISO file with:
 > sudo mount $DM_FILE /mnt
 
 With ejecting the disc, first umount the ISO, and then close the device mapping with:
-> sudo veritysetup close ${DM_FILE}${EXTRA_CLEANUP}
+> sudo veritysetup close ${DM_FILE}
 EOF
 
 exit 0
