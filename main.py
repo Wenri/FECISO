@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('data_dir', type=Path, help='data environment')
     parser.add_argument('-o', '--output', type=Path, required=True, help='output iso file')
     parser.add_argument('-V', '--volid', type=VolID, required=True, help='volume label')
-    parser.add_argument('-C', '--compress', action='store_true', help='compress data')
+    parser.add_argument('-C', '--compress', type=str, help='compress and encrypt data')
     return parser.parse_args()
 
 
@@ -40,7 +40,7 @@ async def check_rootpassword(root_password=None):
 
 async def main(opt: argparse.Namespace) -> int:
     root_password = await check_rootpassword() if opt.compress else None
-    img = ImageCreate(opt.output, dmid=opt.volid, compression=opt.compress, bpassword=root_password)
+    img = ImageCreate(opt.output, dmid=opt.volid, comp_key=opt.compress, bpassword=root_password)
     await img.create_output(opt.data_dir)
     fec = FECSetup(opt.output, dmid=opt.volid)
     ret = await fec.formatfec()
