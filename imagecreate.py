@@ -35,15 +35,34 @@ async def acall(*args, capture=False, forward=False, stdin: Optional[int] = asyn
     return msg
 
 
+async def _refresh_rootpassword(refresh_done, refresh_intvl=10):
+    _, aws = await asyncio.wait({refresh_done.wait()}, timeout=refresh_intvl)
+    while aws and not refresh_done.is_set():
+        await acall('sudo', '-S', '-v', capture=True)
+        _, aws = await asyncio.wait(aws, timeout=refresh_intvl)
+
+
 class ImageCreate:
     def __init__(self, isofile: os.PathLike, dmid: VolID, compression: bool, bpassword: Optional[bytes] = None):
         self.isofile = Path(isofile)
         self.volid = dmid.get_volid()
         self.squash_file: Optional[Path] = None
         self.bpassword = bpassword
+        self.refresh_done = None
         if compression:
             squash_dir = self.isofile.with_suffix('.rootdir')
             self.squash_file = squash_dir / self.isofile.with_suffix('.sqfs').name
+
+    @asynccontextmanager
+    async def __maybe_refresh_pw(self):
+        if self.bpassword:
+            yield
+        else:
+            refresh_done = asyncio.Event()
+            task = asyncio.create_task(_refresh_rootpassword(refresh_done))
+            yield
+            refresh_done.set()
+            await task
 
     @asynccontextmanager
     async def __maybe_compress(self, data_dir):
@@ -51,8 +70,9 @@ class ImageCreate:
             self.squash_file.parent.mkdir(exist_ok=True)
             self.squash_file.unlink(missing_ok=True)
             try:
-                await self._mksquashfs(data_dir)
-                yield os.fspath(self.squash_file.parent)
+                async with self.__maybe_refresh_pw():
+                    await self._mksquashfs(data_dir)
+                    yield os.fspath(self.squash_file.parent)
             finally:
                 self.squash_file.unlink()
                 self.squash_file.parent.rmdir()
@@ -86,17 +106,17 @@ class ImageCreate:
     async def mount_iso(self, mountpoint):
         cmd = shlex.split('sudo -S mount')
         mountpoint.mkdir(exist_ok=True)
-        await acall(*cmd, os.fspath(self.isofile), mountpoint, capture=True, stderr=None, binput=self.bpassword)
+        await acall(*cmd, os.fspath(self.isofile), mountpoint, capture=True, binput=self.bpassword)
         return mountpoint
 
     async def umount_iso(self, mountpoint: Path):
         cmd = shlex.split('sudo -S umount')
-        await acall(*cmd, mountpoint, capture=True, stderr=None, binput=self.bpassword)
+        await acall(*cmd, mountpoint, capture=True, binput=self.bpassword)
         mountpoint.rmdir()
 
     async def filefrag(self, file):
         cmd = shlex.split('sudo -S filefrag -e')
-        msg = await acall(*cmd, os.fspath(file), capture=True, stderr=None, binput=self.bpassword)
+        msg = await acall(*cmd, os.fspath(file), capture=True, binput=self.bpassword)
         fs_type, blocks, kw, *extents, summary = msg.decode().splitlines()
 
         m = re.search(r"\(([\w\s]+)\)", blocks)
