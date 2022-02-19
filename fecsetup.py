@@ -5,15 +5,15 @@ import shutil
 import struct
 from collections import OrderedDict
 from pathlib import Path
-from typing import Final
+from typing import Final, Optional
 
 import numpy as np
 import psutil
 from beartype import beartype
 from tqdm import tqdm
 
-from capacity import DiscCapacity, NumberSegments, sizeof_fmt, VolID
 from bootsh import BootSh
+from capacity import DiscCapacity, NumberSegments, sizeof_fmt, VolID
 from imagecreate import acall
 
 
@@ -24,7 +24,8 @@ class FECSetup:
     _HASH_DIV: Final[int] = _BLK_SZ // _HASH_SZ
     _CLUSTER_SZ: Final[int] = 64 * 1024
 
-    def __init__(self, isofile: os.PathLike, dmid: VolID):
+    def __init__(self, isofile: os.PathLike, dmid: VolID, offset: int = 0, length: int = 0,
+                 cipher: Optional[str] = None):
         self.isofile = Path(isofile)
         self.iso_s = (os.path.getsize(self.isofile) + self._BLK_SZ - 1) // self._BLK_SZ
         self.hash_s = self._hs(self.iso_s)
@@ -37,8 +38,8 @@ class FECSetup:
             self.fec_roots = 24
 
         self.sh = BootSh(
-            ISO_S=self.iso_s * self._BLK_SZ,
-            HASH_S=self.hash_s * self._BLK_SZ,
+            ISO_SZ=self.iso_s * self._BLK_SZ,
+            HASH_SZ=self.hash_s * self._BLK_SZ,
             DMID=f'"{dmid.get_dmid()}"'
         )
         cpu_count = psutil.cpu_count(logical=False)

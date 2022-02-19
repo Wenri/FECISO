@@ -50,15 +50,15 @@ async def _fallocate(file, size):
 
 
 class ImageCreate:
-    def __init__(self, isofile: os.PathLike, dmid: VolID, comp_key: Optional[str], bpassword: Optional[bytes] = None):
+    def __init__(self, isofile: os.PathLike, dmid: VolID, _key: Optional[str], bpassword: Optional[bytes] = None):
         self.isofile = Path(isofile)
-        self.dmid = dmid
+        self.volid = dmid.get_volid()
         self.bpassword = bpassword
-        self.comp_key = comp_key
-        self.sqfs_file: Optional[Path] = None
-        if comp_key:
-            squash_dir = self.isofile.with_suffix('.rootdir')
-            self.sqfs_file = squash_dir / f'{self.dmid.get_dmid()}.sqfs'
+        self.comp_key = _key
+        self.length = 0
+        self.offset = 0
+        self.cipher: Optional[str] = None
+        self.sqfs_file = None if _key is None else self.isofile.with_suffix('.rootdir') / f'{dmid.get_dmid()}.sqfs'
 
     @asynccontextmanager
     async def _maybe_refresh_pw(self):
@@ -71,26 +71,36 @@ class ImageCreate:
             refresh_done.set()
             await task
 
+    async def _maybe_encrypt(self):
+        crypt_file = self.sqfs_file.with_suffix('.crypt')
+        crypt_file.unlink(missing_ok=True)
+        if self.comp_key:
+            self.cipher = 'aes-xts-plain64'
+            try:
+                await _fallocate(crypt_file, os.path.getsize(self.sqfs_file))
+                await self._cryptsetup_open(crypt_file)
+                crypt_name = '{}_crypt'.format(self.sqfs_file.with_suffix('').name)
+                crypt_dev = Path(f'/dev/mapper/{crypt_name}')
+                with self.sqfs_file.open('rb') as sqf, crypt_dev.open('r+b') as blk:
+                    shutil.copyfileobj(sqf, blk)
+                await self._cryptsetup_close()
+                crypt_file.replace(self.sqfs_file)
+            finally:
+                crypt_file.unlink(missing_ok=True)
+        else:
+            self.cipher = 'cipher_null'
+
     @asynccontextmanager
     async def _maybe_compress(self, data_dir):
         if self.sqfs_file:
-            crypt_file = self.sqfs_file.with_suffix('.crypt')
             self.sqfs_file.parent.mkdir(exist_ok=True)
             self.sqfs_file.unlink(missing_ok=True)
-            crypt_file.unlink(missing_ok=True)
             try:
                 async with self._maybe_refresh_pw():
                     await self._mksquashfs(data_dir)
-                    await _fallocate(crypt_file, os.path.getsize(self.sqfs_file))
-                    await self._cryptsetup_open(crypt_file)
-                    crypt_dev = Path(f'/dev/mapper/{self.dmid.get_dmid()}_crypt')
-                    with self.sqfs_file.open('rb') as sqf, crypt_dev.open('r+b') as blk:
-                        shutil.copyfileobj(sqf, blk)
-                    await self._cryptsetup_close()
-                    crypt_file.replace(self.sqfs_file)
+                    await self._maybe_encrypt()
                     yield os.fspath(self.sqfs_file.parent)
             finally:
-                crypt_file.unlink(missing_ok=True)
                 self.sqfs_file.unlink(missing_ok=True)
                 self.sqfs_file.parent.rmdir()
         else:
@@ -108,12 +118,15 @@ class ImageCreate:
                 extent, = await self._filefrag(self.sqfs_file)
             finally:
                 await self._umount_iso(self.sqfs_file.parent)
-            phy_start, phy_end = map(int, extent.physical_offset.split('..'))
-            print('physical_offset', phy_start, phy_end)
+            log_start, log_end = map(int, extent.logical_offset.split('..'))
+            self.offset, phy_end = map(int, extent.physical_offset.split('..'))
+            self.length = int(extent.length)
+            assert log_start == 0 and log_end + 1 == self.length == phy_end - self.offset + 1
+            print('Physical Offset', self.offset, phy_end)
 
     async def _mkisofs(self, *source: str):
         options = shlex.split('-as mkisofs -verbose -iso-level 4 -r -J -joliet-long -no-pad')
-        await acall('xorriso', *options, '-V', self.dmid.get_volid(), '-o', os.fspath(self.isofile),
+        await acall('xorriso', *options, '-V', self.volid, '-o', os.fspath(self.isofile),
                     *source, capture=True, forward=True)
 
     async def _mksquashfs(self, *source):
@@ -147,17 +160,19 @@ class ImageCreate:
         T = namedtuple('file_extents', kw.replace(':', ' '), defaults=(None,))
         return [T(*map(str.strip, s.split(':'))) for s in extents]
 
-    async def _cryptsetup_open(self, file, cipher='aes-xts-plain64'):
+    async def _cryptsetup_open(self, file):
         cmd = shlex.split('sudo -S -E sh -c')
+        crypt_name = '{}_crypt'.format(self.sqfs_file.with_suffix('').name)
         options = shlex.split('cryptsetup open --type plain --hash sha512 --key-size 512 --key-file=- --cipher')
-        options += (cipher, os.fspath(file), f'{self.dmid.get_dmid()}_crypt')
+        options += (self.cipher, os.fspath(file), crypt_name)
         shell_cmd = 'echo -n "$_COMP_KEY" | ' + shlex.join(options)
         env = dict(os.environ, _COMP_KEY=self.comp_key)
         msg = await acall(*cmd, shell_cmd, capture=True, binput=self.bpassword, env=env)
         cmd = shlex.split('sudo -S chown')
-        await acall(*cmd, getuser(), f'/dev/mapper/{self.dmid.get_dmid()}_crypt', capture=True, binput=self.bpassword)
+        await acall(*cmd, getuser(), f'/dev/mapper/{crypt_name}', capture=True, binput=self.bpassword)
         return msg
 
     async def _cryptsetup_close(self):
         cmd = shlex.split('sudo -S cryptsetup close')
-        return await acall(*cmd, f'{self.dmid.get_dmid()}_crypt', capture=True, binput=self.bpassword)
+        crypt_name = '{}_crypt'.format(self.sqfs_file.with_suffix('').name)
+        return await acall(*cmd, crypt_name, capture=True, binput=self.bpassword)
