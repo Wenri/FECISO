@@ -68,3 +68,17 @@ class NumberSegments:
                 s.write(f'-{prev}')
             s.write(f':{self.rep_str}')
             return s.getvalue()
+
+
+class VolID:
+    def __init__(self, s: str):
+        s = s.strip()
+        if len(s) > 15 or not s.isascii() or not s.isidentifier():
+            raise ValueError(s)
+        self.s = s
+
+    def get_volid(self):
+        return self.s.upper()
+
+    def get_dmid(self):
+        return self.s.lower()

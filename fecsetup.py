@@ -3,7 +3,6 @@ import io
 import os
 import shutil
 import struct
-import sys
 from collections import OrderedDict
 from pathlib import Path
 from typing import Final
@@ -13,43 +12,9 @@ import psutil
 from beartype import beartype
 from tqdm import tqdm
 
+from capacity import DiscCapacity, NumberSegments, sizeof_fmt, VolID
 from bootsh import BootSh
-from capacity import DiscCapacity, NumberSegments, sizeof_fmt
-
-
-async def mkisofs(*targs: str, **kwargs: str) -> int:
-    args = ['xorriso', '-as', 'mkisofs', '-verbose', '-iso-level', '4', '-r', '-J', '-joliet-long', '-no-pad']
-    for k, t in kwargs.items():
-        args.append(f"-{k}")
-        args.append(f'{t}')
-    for t in targs:
-        args.append(f"{t}")
-    proc = None
-    try:
-        proc = await asyncio.subprocess.create_subprocess_exec(
-            *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-        while not proc.stdout.at_eof():
-            s = await proc.stdout.readline()
-            sys.stdout.write(s.decode())
-        await proc.communicate()
-    finally:
-        if proc is not None and proc.returncode is None:
-            proc.terminate()
-    return proc.returncode
-
-
-class VolID:
-    def __init__(self, s: str):
-        s = s.strip()
-        if len(s) > 15 or not s.isascii() or not s.isidentifier():
-            raise ValueError(s)
-        self.s = s
-
-    def get_volid(self):
-        return self.s.upper()
-
-    def get_dmid(self):
-        return self.s.lower()
+from imagecreate import acall
 
 
 class FECSetup:
@@ -162,17 +127,8 @@ class FECSetup:
                 f'--data-block-size={self._BLK_SZ}', f'--hash-block-size={self._BLK_SZ}',
                 f'--fec-device={os.fspath(fecfile)}', os.fspath(self.isofile), os.fspath(hashfile)]
 
-        proc = None
-        await queue.acquire()
-        try:
-            proc = await asyncio.subprocess.create_subprocess_exec(
-                *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT)
-            msg, _ = await proc.communicate()
-        finally:
-            if proc is not None and proc.returncode is None:
-                proc.terminate()
-            queue.release()
+        async with queue:
+            msg = await acall(*args, capture=True)
 
         assert os.path.getsize(hashfile) == self.hash_s * self._BLK_SZ
 

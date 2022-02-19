@@ -7,8 +7,8 @@ class BootSh:
     __SEP_DOC = ': <<_'
 
     def __init__(self, **kwargs):
-        bootsh = Path(__file__)
-        with bootsh.with_suffix('.sh').open('r') as tmpl:
+        bootsh = Path(__file__).with_name('boot.sh')
+        with bootsh.open('r') as tmpl:
             self.header = self._build_header(tmpl, **kwargs)
             self.body = tmpl.read()
 
