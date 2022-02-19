@@ -1,3 +1,4 @@
+import shlex
 from io import StringIO
 from pathlib import Path
 
@@ -22,7 +23,9 @@ class BootSh:
                     else:
                         k, *v = s.split('=', maxsplit=1)
                         assert v
-                        print(f'{k}={kwargs[k]}', file=strf)
+                        v = kwargs.get(k)
+                        v = shlex.quote(str(v)) if v is not None else ''
+                        print(f'{k}={v}', file=strf)
                 elif s.startswith(self._HERE_DOC):
                     replace_str = s[len(self._HERE_DOC):]
                 else:

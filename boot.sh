@@ -4,6 +4,9 @@ set -euo pipefail
 ISO_SZ=
 HASH_SZ=
 DMID=
+OFFSET=
+LENGTH=
+CIPHER=
 VARS_END
 : <<_MBR_SEP
 
@@ -41,6 +44,11 @@ losetup -d "$HASH_DEV"
 losetup -d "$FEC_DEV"
 
 DM_FILE="/dev/mapper/$DMID"
+
+if [[ -n "$CIPHER" ]]; then
+  cryptsetup open --readonly --type plain --hash sha512 --key-size 512 --cipher "$CIPHER" \
+    --offset "$OFFSET" --size "$LENGTH" "$DM_FILE" "${DMID}_crypt"
+fi
 
 cat <<-EOF
 Mapping at $DM_FILE -> $(readlink -e "$DM_FILE")

@@ -38,9 +38,8 @@ class FECSetup:
             self.fec_roots = 24
 
         self.sh = BootSh(
-            ISO_SZ=self.iso_s * self._BLK_SZ,
-            HASH_SZ=self.hash_s * self._BLK_SZ,
-            DMID=f'"{dmid.get_dmid()}"'
+            ISO_SZ=self.iso_s * self._BLK_SZ, HASH_SZ=self.hash_s * self._BLK_SZ, DMID=dmid.get_dmid(),
+            OFFSET=offset * 4, LENGTH=length * 4, CIPHER=cipher
         )
         cpu_count = psutil.cpu_count(logical=False)
         fec_preview_count = min(self.fec_roots - 1, cpu_count) if cpu_count else self.fec_roots - 1

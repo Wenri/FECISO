@@ -42,8 +42,8 @@ async def main(opt: argparse.Namespace) -> int:
     root_password = await check_rootpassword() if opt.compress else None
     img = ImageCreate(opt.output, dmid=opt.volid, _key=opt.compress, bpassword=root_password)
     await img.create_output(opt.data_dir)
-    fec = FECSetup(opt.output, dmid=opt.volid)
-    ret = await fec.formatfec()
+    img = FECSetup(opt.output, dmid=opt.volid, offset=img.offset, length=img.length, cipher=img.cipher)
+    ret = await img.formatfec()
     return ret
 
 
