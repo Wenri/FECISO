@@ -40,7 +40,7 @@ EOF
   echo "Using FEC Device $FEC_DEV"
 
   veritysetup -v --ignore-corruption "--fec-roots=$FEC_ROOTS" \
-    "--fec-device=$FEC_DEV" open "$IMG_DEV" "$DMID" "$HASH_DEV" "$ROOT_HASH" || :
+    "--fec-device=$FEC_DEV" open "$IMG_DEV" "$DMID" "$HASH_DEV" "$ROOT_HASH"
   losetup -d "$HASH_DEV"
   losetup -d "$FEC_DEV"
 }
@@ -86,9 +86,8 @@ EOF
   fi
 }
 
-if [[ -b "IMG_DEV" ]] && grep -qs "IMG_DEV" /proc/mounts; then
-  udisksctl unmount -b "IMG_DEV" || true
-fi
+# shellcheck disable=SC2015
+[[ -b "$IMG_DEV" ]] && grep -qs "$IMG_DEV" /proc/mounts && udisksctl unmount -b "$IMG_DEV" || :
 if [[ -z ${_OH_MY_GBC_NOVERITY+x} ]]; then
   dm_verity
   DM_FILE="/dev/mapper/$DMID"
