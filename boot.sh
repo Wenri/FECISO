@@ -41,15 +41,10 @@ EOF
 
   if veritysetup -v --ignore-corruption "--fec-roots=$FEC_ROOTS" \
     "--fec-device=$FEC_DEV" open "$IMG_DEV" "$DMID" "$HASH_DEV" "$ROOT_HASH"; then
-    local _RET=0
-  else
-    local _RET=1
+    DM_FILE="/dev/mapper/$DMID"
   fi
-  losetup -d "$HASH_DEV"
-  unset HASH_DEV
-  losetup -d "$FEC_DEV"
-  unset FEC_DEV
-  return $_RET
+  if losetup -d "$HASH_DEV"; then unset HASH_DEV; fi
+  if losetup -d "$FEC_DEV"; then unset FEC_DEV; fi
 }
 function dm_crypt() {
   local _GETPASS_PROG
@@ -68,19 +63,18 @@ x = getpass('Input your password: ')
 x = hashlib.scrypt(x.encode(), salt=h.digest(), n=2 ** 20, r=8, p=1, maxmem=2 ** 31 - 1, dklen=64)
 os.write(sys.stdout.fileno(), x)
 EOF
-  if ! python3 -c "$_GETPASS_PROG" | cryptsetup open --readonly --type plain --hash plain --key-size 512 --key-file=- \
+  if python3 -c "$_GETPASS_PROG" | cryptsetup open --readonly --type plain --hash plain --key-size 512 --key-file=- \
     --cipher "$CIPHER" --offset "$OFFSET" --size "$LENGTH" "$DM_FILE" "${DMID}_crypt"; then
-    local _RET=1
-  else
-    if unsquashfs -stat "/dev/mapper/${DMID}_crypt"; then
-      _OH_MY_GBC_FS_PRESERVE=1
+    FS_DEV="/dev/mapper/${DMID}_crypt"
+    if unsquashfs -stat "$FS_DEV"; then
+      _OH_MY_GBC_NOCRYPT=1
     else
       echo "Your password maybe wrong!"
     fi
-    local _RET=0
+  else
+    _OH_MY_GBC_NOCRYPT=1
   fi
   unset _GETPASS_PROG
-  return $_RET
 }
 function mount_helper() {
   echo "Mapping at $FS_DEV -> $(readlink -e "$FS_DEV")"
@@ -90,11 +84,9 @@ You may unmount the ISO file with:
 > udisksctl unmount -b $FS_DEV
 The device mapper is scheduled to deferred close automatically.
 EOF
-    local _RET=0
-  elif [[ -n "$CIPHER" ]] && [[ -z ${_OH_MY_GBC_FS_PRESERVE+x} ]]; then
+  elif [[ -n "$CIPHER" ]] && [[ -z ${_OH_MY_GBC_NOCRYPT+x} ]]; then
     echo "Mount failed, cleaning up..."
     echo "Set _OH_MY_GBC_FS_PRESERVE=1 to prevent this"
-    local _RET=0
   else
     cat <<-EOF
 You may mount the ISO file with:
@@ -103,30 +95,28 @@ With ejecting the disc, first umount the ISO, and then close the device mapping 
 EOF
     [[ "$FS_DEV" == "$DM_FILE" ]] || echo "> sudo cryptsetup close $FS_DEV"
     [[ "$DM_FILE" == "$IMG_DEV" ]] || echo "> sudo veritysetup close $DM_FILE"
-    local _RET=1
+    _OH_MY_GBC_FS_PRESERVE=1
   fi
-  return $_RET
 }
 function cleanup() {
-  [[ "$FS_DEV" == "$DM_FILE" ]] || cryptsetup close --deferred "$FS_DEV" || :
-  [[ "$DM_FILE" == "$IMG_DEV" ]] || cryptsetup close --deferred "$DM_FILE" || :
-  [[ -z ${FEC_DEV+x} ]] || losetup -d "$FEC_DEV" || :
-  [[ -z ${HASH_DEV+x} ]] || losetup -d "$HASH_DEV" || :
+  if [[ -z ${_OH_MY_GBC_FS_PRESERVE+x} ]]; then
+    echo "Cleanup on exit"
+    [[ -z ${FS_DEV+x} ]] || [[ "$FS_DEV" == "$DM_FILE" ]] || cryptsetup close --deferred "$FS_DEV" || :
+    [[ -z ${DM_FILE+x} ]] || [[ "$DM_FILE" == "$IMG_DEV" ]] || cryptsetup close --deferred "$DM_FILE" || :
+    [[ -z ${FEC_DEV+x} ]] || losetup -d "$FEC_DEV" || :
+    [[ -z ${HASH_DEV+x} ]] || losetup -d "$HASH_DEV" || :
+  else
+    echo "_OH_MY_GBC_FS_PRESERVE is set. No cleanup"
+  fi
 }
 if [[ -b "$IMG_DEV" ]] && grep -qs "$IMG_DEV" /proc/mounts; then
   udisksctl unmount -b "$IMG_DEV" || :
 fi
-if [[ -z ${_OH_MY_GBC_NOVERITY+x} ]] && dm_verity; then
-  DM_FILE="/dev/mapper/$DMID"
-else
-  DM_FILE="$IMG_DEV"
-fi
-if [[ -z ${_OH_MY_GBC_NOCRYPT+x} ]] && [[ -n "$CIPHER" ]] && dm_crypt; then
-  FS_DEV="/dev/mapper/${DMID}_crypt"
-else
-  CIPHER=
-  FS_DEV="$DM_FILE"
-fi
-! mount_helper || cleanup
+trap cleanup EXIT
+DM_FILE="$IMG_DEV"
+if [[ -z ${_OH_MY_GBC_NOVERITY+x} ]]; then dm_verity; fi
+FS_DEV="$DM_FILE"
+if [[ -z ${_OH_MY_GBC_NOCRYPT+x} ]] && [[ -n "$CIPHER" ]]; then dm_crypt; fi
+mount_helper
 
 exit 0
