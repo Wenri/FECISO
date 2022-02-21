@@ -2,6 +2,8 @@
 
 import argparse
 import asyncio
+import base64
+import secrets
 import subprocess
 import sys
 from getpass import getpass
@@ -25,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('-d', '--disc', type=DiscID, help='disc id')
     parser.add_argument('--hint', type=PassHint, help='password hint')
     parser.add_argument('--save_disc', action='store_true', help='save disc id')
+    parser.add_argument('--save_pass', action='store_true', help='save password')
     return parser.parse_args()
 
 
@@ -42,12 +45,16 @@ async def check_rootpassword(root_password=None):
 
 
 async def main(opt: argparse.Namespace) -> int:
+    if opt.save_pass and not opt.compress:
+        opt.compress = base64.b85encode(secrets.token_bytes()).decode()
     root_password = await check_rootpassword() if opt.compress else None
     img = ImageCreate(opt.output, dmid=opt.volid, _key=opt.compress, bpassword=root_password, disc=opt.disc)
     await img.create_output(opt.data_dir)
-    if opt.hint is None and opt.compress is not None:
-        opt.hint = PassHint()
     kwargs = {}
+    if opt.save_pass:
+        kwargs['_PASS'] = PassHint(img.comp_key)
+    elif opt.hint is None and opt.compress is not None:
+        opt.hint = PassHint()
     if opt.save_disc or opt.disc != img.disc:
         kwargs['_DISC_ID'] = img.disc
     if opt.hint is not None:

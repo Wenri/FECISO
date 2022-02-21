@@ -65,7 +65,7 @@ h.update(rb"""$_DISC_ID""")
 h.update(b'${DMID}_crypt')
 h.update(b'$CIPHER')
 h.update(x.to_bytes((x.bit_length() + 7) // 8, byteorder='little'))
-x = getpass(r"""${_HINT-}: """)
+x = r"""${_PASS-}""" or getpass(r"""${_HINT-}: """)
 x = hashlib.scrypt(x.encode(), salt=h.digest(), n=2 ** 20, r=8, p=1, maxmem=2 ** 31 - 1, dklen=64)
 os.write(sys.stdout.fileno(), x)
 EOF

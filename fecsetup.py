@@ -228,8 +228,8 @@ class FECSetup:
               'Hash:', sizeof_fmt(self.hash_s * self._BLK_SZ),
               'Code:', sizeof_fmt(fec_size))
 
-        iso_s, rem = divmod(os.path.getsize(self.isofile), self._BLK_SZ)
+        iso_s, rem = divmod(os.path.getsize(self.isofile), self._CLUSTER_SZ)
         assert not rem
-        print('ISO Sectors:', iso_s, 'sectors')
+        print('ISO Sectors:', iso_s * self._CLUSTER_SZ // self._BLK_SZ, 'sectors')
 
         return 0
