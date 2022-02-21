@@ -188,14 +188,14 @@ class FECSetup:
             size_s = (disc_s - self.iso_s - self.hash_s - fec_s) * self._BLK_SZ
             if prev_str != size_s:
                 if prev_str:
-                    print(prev_str, end=' ')
+                    print(prev_str, end='  ')
                 prev_str = NumberSegments(size_s)
             prev_str.add_val(i)
 
         print(prev_str)
         while True:
             try:
-                sel_roots = int(input('Select your lucky number: '))
+                sel_roots = int(input('\nSelect your lucky number: '))
                 if sel_roots in self.fec_preview_set:
                     break
             except ValueError:

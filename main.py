@@ -19,15 +19,15 @@ from imagecreate import ImageCreate, acall
 
 @beartype
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Oh My GBC~')
     parser.add_argument('data_dir', type=Path, help='data environment')
     parser.add_argument('-o', '--output', type=Path, required=True, help='output iso file')
     parser.add_argument('-V', '--volid', type=VolID, required=True, help='volume label')
-    parser.add_argument('-C', '--compress', type=str, help='compress and encrypt data')
+    parser.add_argument('-C', '--compress', type=str, metavar='PASSCODE', help='to compress and encrypt data. To disable encryption, pass an empty string.')
     parser.add_argument('-d', '--disc', type=DiscID, help='disc id')
     parser.add_argument('--hint', type=PassHint, help='password hint')
     parser.add_argument('--save_disc', action='store_true', help='save disc id')
-    parser.add_argument('--save_pass', action='store_true', help='save password')
+    parser.add_argument('--save_pass', action='store_true', help='save password. It also enables compression and encryption. (A random passcode will be generated if no passcode is specified).')
     return parser.parse_args()
 
 
