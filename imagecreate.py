@@ -169,11 +169,11 @@ class ImageCreate:
         return [T(*map(str.strip, s.split(':'))) for s in extents]
 
     async def _cryptsetup_open(self, file):
-        cmd = shlex.split('sudo -S -E bash -euo pipefail -c')
         crypt_name = '{}_crypt'.format(self.sqfs_file.with_suffix('').name)
         options = shlex.split('cryptsetup open --type plain --hash plain --key-size 512 --key-file=- --cipher')
         options += (self.cipher, os.fspath(file), crypt_name)
-        shell_cmd = 'echo -n "$_COMP_KEY" | xxd -r -p | ' + shlex.join(options)
+        shell_cmd = shlex.split('sudo -S -E bash -euo pipefail -c')
+        shell_cmd.append(f'xxd -r -p <<<"$_COMP_KEY" | {shlex.join(options)}')
         h = hashlib.new('sm3')
         x = os.path.getsize(self.sqfs_file)
         h.update(str(self.disc).encode())
@@ -181,8 +181,7 @@ class ImageCreate:
         h.update(self.cipher.encode())
         h.update(x.to_bytes((x.bit_length() + 7) // 8, byteorder='little'))
         x = hashlib.scrypt(self.comp_key.encode(), salt=h.digest(), n=2 ** 20, r=8, p=1, maxmem=2 ** 31 - 1, dklen=64)
-        env = dict(os.environ, _COMP_KEY=x.hex())
-        msg = await acall(*cmd, shell_cmd, capture=True, binput=self.bpassword, env=env)
+        msg = await acall(*shell_cmd, capture=True, binput=self.bpassword, env=dict(os.environ, _COMP_KEY=x.hex()))
         cmd = shlex.split('sudo -S chown')
         await acall(*cmd, getuser(), f'/dev/mapper/{crypt_name}', capture=True, binput=self.bpassword)
         return msg
