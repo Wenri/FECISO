@@ -11,7 +11,7 @@ from collections import namedtuple
 from contextlib import asynccontextmanager
 from getpass import getuser
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from capacity import VolID, DiscID
 
@@ -53,7 +53,7 @@ async def _fallocate(file, size):
 
 class ImageCreate:
     def __init__(self, isofile: os.PathLike, dmid: VolID, _key: Optional[str], bpassword: Optional[bytes] = None,
-                 disc: Optional[str | DiscID] = None):
+                 disc: Optional[Union[str, DiscID]] = None):
         self.isofile = Path(isofile)
         self.volid = dmid.get_volid()
         self.bpassword = bpassword
