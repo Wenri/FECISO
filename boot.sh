@@ -75,7 +75,7 @@ EOF
     if unsquashfs -stat "$FS_DEV"; then
       _OH_MY_GBC_NOCRYPT=1
     else
-      echo "Your password maybe wrong!"
+      echo "Your password may be wrong!"
     fi
   else
     _OH_MY_GBC_NOCRYPT=1
