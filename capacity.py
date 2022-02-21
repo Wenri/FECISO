@@ -1,3 +1,4 @@
+import ast
 from io import StringIO
 
 import numpy as np
@@ -82,3 +83,25 @@ class VolID:
 
     def get_dmid(self):
         return self.s.lower()
+
+
+class DiscID:
+    _KNOWN_IDS = {'VERBAT/IMk/0'}
+
+    def __init__(self, s: str):
+        s = s.strip()
+        if not s.isascii() or s not in self._KNOWN_IDS:
+            raise ValueError(s)
+        self.s = s
+
+    def __str__(self):
+        return self.s
+
+
+class PassHint:
+    def __init__(self, s: str = 'Please input you password'):
+        assert isinstance(ast.literal_eval(f'r"""{s}: """'), str)
+        self.s = s
+
+    def __str__(self):
+        return self.s

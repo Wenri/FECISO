@@ -13,7 +13,7 @@ from beartype import beartype
 from tqdm import tqdm
 
 from bootsh import BootSh
-from capacity import DiscCapacity, NumberSegments, sizeof_fmt, VolID
+from capacity import DiscCapacity, NumberSegments, sizeof_fmt, VolID, PassHint
 from imagecreate import acall
 
 
@@ -25,7 +25,7 @@ class FECSetup:
     _CLUSTER_SZ: Final[int] = 64 * 1024
 
     def __init__(self, isofile: os.PathLike, dmid: VolID, offset: int = 0, length: int = 0,
-                 cipher: Optional[str] = None):
+                 cipher: Optional[str] = None, **kwargs):
         self.isofile = Path(isofile)
         self.iso_s = (os.path.getsize(self.isofile) + self._BLK_SZ - 1) // self._BLK_SZ
         self.hash_s = self._hs(self.iso_s)
@@ -39,7 +39,7 @@ class FECSetup:
 
         self.sh = BootSh(
             ISO_SZ=self.iso_s * self._BLK_SZ, HASH_SZ=self.hash_s * self._BLK_SZ, DMID=dmid.get_dmid(),
-            OFFSET=offset * 4, LENGTH=length * 4, CIPHER=cipher
+            OFFSET=offset * 4, LENGTH=length * 4, CIPHER=cipher, **kwargs
         )
         cpu_count = psutil.cpu_count(logical=False)
         fec_preview_count = min(self.fec_roots - 1, cpu_count) if cpu_count else self.fec_roots - 1

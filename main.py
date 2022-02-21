@@ -10,7 +10,7 @@ from pathlib import Path
 
 from beartype import beartype
 
-from capacity import VolID
+from capacity import VolID, DiscID, PassHint
 from fecsetup import FECSetup
 from imagecreate import ImageCreate, acall
 
@@ -22,6 +22,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('-o', '--output', type=Path, required=True, help='output iso file')
     parser.add_argument('-V', '--volid', type=VolID, required=True, help='volume label')
     parser.add_argument('-C', '--compress', type=str, help='compress and encrypt data')
+    parser.add_argument('-d', '--disc', type=DiscID, help='disc id')
+    parser.add_argument('--hint', type=PassHint, help='password hint')
+    parser.add_argument('--save_disc', action='store_true', help='save disc id')
     return parser.parse_args()
 
 
@@ -40,9 +43,16 @@ async def check_rootpassword(root_password=None):
 
 async def main(opt: argparse.Namespace) -> int:
     root_password = await check_rootpassword() if opt.compress else None
-    img = ImageCreate(opt.output, dmid=opt.volid, _key=opt.compress, bpassword=root_password)
+    img = ImageCreate(opt.output, dmid=opt.volid, _key=opt.compress, bpassword=root_password, disc=opt.disc)
     await img.create_output(opt.data_dir)
-    img = FECSetup(opt.output, dmid=opt.volid, offset=img.offset, length=img.length, cipher=img.cipher)
+    if opt.hint is None and opt.compress is not None:
+        opt.hint = PassHint()
+    kwargs = {}
+    if opt.save_disc or opt.disc != img.disc:
+        kwargs['_DISC_ID'] = img.disc
+    if opt.hint is not None:
+        kwargs['_HINT'] = opt.hint
+    img = FECSetup(opt.output, dmid=opt.volid, offset=img.offset, length=img.length, cipher=img.cipher, **kwargs)
     ret = await img.formatfec()
     return ret
 

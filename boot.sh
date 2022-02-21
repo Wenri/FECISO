@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 : <<-VARS_END
-ISO_SZ=
-HASH_SZ=
-DMID=
-OFFSET=
-LENGTH=
-CIPHER=
+ISO_SZ=<ISO Image Size in bytes>
+HASH_SZ=<HASH Size in bytes>
+DMID=<Device mapper name>
+OFFSET=<Offset of compressed data in 512-byte sectors>
+LENGTH=<Length of compressed data in 512-byte sectors>
+CIPHER=<Cipher name for encrypt algorithm>
 VARS_END
 : <<_MBR_SEP
-
+This block will be replaced with optional kwargs and be placed after MBR record.
 _MBR_SEP
 IMG_DEV="${BASH_SOURCE[0]}"
 [[ "$(id -u)" -eq "0" ]] || exec sudo bash "$IMG_DEV"
 
 function dm_verity() {
+  local ROOT_HASH
+  local FEC_ROOTS
+  local _LOADHASH_PROG
   ROOT_HASH=$(od -j$((ISO_SZ + 512)) -N16 -tx1 -An "$IMG_DEV" | tr -d '\n ')
   FEC_ROOTS=$(od -j$((ISO_SZ + 528)) -N1 -tu1 -An "$IMG_DEV" | tr -d '\n ')
   echo "Root Hash is $ROOT_HASH, Fec Roots is $FEC_ROOTS"
-  echo "Reading Hash into memory..."
-  local _LOADHASH_PROG
   IFS='' read -r -d '' _LOADHASH_PROG <<EOF || :
 import os
 import sys
@@ -32,6 +33,7 @@ assert $HASH_SZ == ret
 args = ['losetup', '-r', '--show', '-b', '2048', '-f', f'/dev/fd/{fd}']
 sys.exit(run(args, pass_fds=(fd,)).returncode)
 EOF
+  echo "Reading Hash into memory..."
   HASH_DEV="$(python3 -c "$_LOADHASH_PROG")"
   unset _LOADHASH_PROG
   echo "Using Hash Device $HASH_DEV"
@@ -48,6 +50,10 @@ EOF
 }
 function dm_crypt() {
   local _GETPASS_PROG
+  if [[ -z ${_DISC_ID+x} ]]; then
+    local _DISC_ID
+    read -r _DISC_ID < <(cdrskin "dev=$IMG_DEV" -minfo | grep '^Product Id' | cut -d':' -f2-)
+  fi
   IFS='' read -r -d '' _GETPASS_PROG <<EOF || :
 import hashlib
 import os
@@ -56,10 +62,11 @@ from getpass import getpass
 
 x = $((LENGTH * 512))
 h = hashlib.new('sm3')
-h.update('${DMID}_crypt'.encode())
-h.update('$CIPHER'.encode())
+h.update(rb"""$_DISC_ID""")
+h.update(b'${DMID}_crypt')
+h.update(b'$CIPHER')
 h.update(x.to_bytes((x.bit_length() + 7) // 8, byteorder='little'))
-x = getpass('Input your password: ')
+x = getpass(r"""${_HINT-}: """)
 x = hashlib.scrypt(x.encode(), salt=h.digest(), n=2 ** 20, r=8, p=1, maxmem=2 ** 31 - 1, dklen=64)
 os.write(sys.stdout.fileno(), x)
 EOF

@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import os
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -51,7 +52,8 @@ async def _fallocate(file, size):
 
 
 class ImageCreate:
-    def __init__(self, isofile: os.PathLike, dmid: VolID, _key: Optional[str], bpassword: Optional[bytes] = None):
+    def __init__(self, isofile: os.PathLike, dmid: VolID, _key: Optional[str], bpassword: Optional[bytes] = None,
+                 disc: Optional[str] = None):
         self.isofile = Path(isofile)
         self.volid = dmid.get_volid()
         self.bpassword = bpassword
@@ -59,6 +61,7 @@ class ImageCreate:
         self.length = 0
         self.offset = 0
         self.cipher: Optional[str] = None
+        self.disc = disc
         self.sqfs_file = None if _key is None else self.isofile.with_suffix('.rootdir') / f'{dmid.get_dmid()}.sqfs'
 
     @asynccontextmanager
@@ -77,6 +80,8 @@ class ImageCreate:
         crypt_file.unlink(missing_ok=True)
         if self.comp_key:
             self.cipher = 'aes-xts-plain64'
+            if not self.disc:
+                self.disc = secrets.token_urlsafe()
             try:
                 await _fallocate(crypt_file, os.path.getsize(self.sqfs_file))
                 await self._cryptsetup_open(crypt_file)
@@ -169,6 +174,7 @@ class ImageCreate:
         shell_cmd = 'echo -n "$_COMP_KEY" | xxd -r -p | ' + shlex.join(options)
         h = hashlib.new('sm3')
         x = os.path.getsize(self.sqfs_file)
+        h.update(self.disc.encode())
         h.update(crypt_name.encode())
         h.update(self.cipher.encode())
         h.update(x.to_bytes((x.bit_length() + 7) // 8, byteorder='little'))
