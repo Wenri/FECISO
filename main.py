@@ -51,7 +51,7 @@ async def main(opt: argparse.Namespace) -> int:
     img = ImageCreate(opt.output, dmid=opt.volid, _key=opt.compress, bpassword=root_password, disc=opt.disc)
     await img.create_output(opt.data_dir)
     kwargs = {}
-    if opt.save_pass:
+    if opt.save_pass or opt.compress == '':
         kwargs['_PASS'] = PassHint(img.comp_key)
     elif opt.hint is None and opt.compress is not None:
         opt.hint = PassHint()

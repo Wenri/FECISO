@@ -94,7 +94,9 @@ class ImageCreate:
             finally:
                 crypt_file.unlink(missing_ok=True)
         else:
-            self.cipher = 'cipher_null'
+            self.disc = 'null'
+            self.comp_key = 'null'
+            self.cipher = 'null'
 
     @asynccontextmanager
     async def _maybe_compress(self, data_dir):
