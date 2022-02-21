@@ -103,7 +103,10 @@ class DiscID:
 class PassHint:
     def __init__(self, s: str = 'Please input you password'):
         assert isinstance(s, str)
-        assert isinstance(ast.literal_eval(f'r"""{s}: """'), str)
+        try:
+            assert isinstance(ast.literal_eval(f'r"""{s}: """'), str)
+        except (TypeError, SyntaxError, MemoryError, RecursionError, AssertionError):
+            raise ValueError(s)
         self.s = s
 
     def __str__(self):
