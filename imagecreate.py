@@ -13,7 +13,7 @@ from getpass import getuser
 from pathlib import Path
 from typing import Optional
 
-from capacity import VolID
+from capacity import VolID, DiscID
 
 
 async def acall(*args, capture=False, forward=False, stdin: Optional[int] = asyncio.subprocess.DEVNULL,
@@ -53,7 +53,7 @@ async def _fallocate(file, size):
 
 class ImageCreate:
     def __init__(self, isofile: os.PathLike, dmid: VolID, _key: Optional[str], bpassword: Optional[bytes] = None,
-                 disc: Optional[str] = None):
+                 disc: Optional[str | DiscID] = None):
         self.isofile = Path(isofile)
         self.volid = dmid.get_volid()
         self.bpassword = bpassword
@@ -174,7 +174,7 @@ class ImageCreate:
         shell_cmd = 'echo -n "$_COMP_KEY" | xxd -r -p | ' + shlex.join(options)
         h = hashlib.new('sm3')
         x = os.path.getsize(self.sqfs_file)
-        h.update(self.disc.encode())
+        h.update(str(self.disc).encode())
         h.update(crypt_name.encode())
         h.update(self.cipher.encode())
         h.update(x.to_bytes((x.bit_length() + 7) // 8, byteorder='little'))

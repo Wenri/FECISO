@@ -86,7 +86,9 @@ class VolID:
 
 
 class DiscID:
-    _KNOWN_IDS = {'VERBAT/IMk/0'}
+    _KNOWN_IDS = {
+        'VERBAT/IMk/0',
+    }
 
     def __init__(self, s: str):
         s = s.strip()

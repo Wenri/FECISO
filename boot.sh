@@ -8,7 +8,7 @@ OFFSET=<Offset of compressed data in 512-byte sectors>
 LENGTH=<Length of compressed data in 512-byte sectors>
 CIPHER=<Cipher name for encrypt algorithm>
 VARS_END
-: <<_MBR_SEP
+: <<'_MBR_SEP'
 This block will be replaced with optional kwargs and be placed after MBR record.
 _MBR_SEP
 IMG_DEV="${BASH_SOURCE[0]}"
@@ -51,7 +51,6 @@ EOF
 function dm_crypt() {
   local _GETPASS_PROG
   if [[ -z ${_DISC_ID+x} ]]; then
-    local _DISC_ID
     read -r _DISC_ID < <(cdrskin "dev=$IMG_DEV" -minfo | grep '^Product Id' | cut -d':' -f2-)
   fi
   IFS='' read -r -d '' _GETPASS_PROG <<EOF || :

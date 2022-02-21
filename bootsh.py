@@ -6,7 +6,7 @@ from pathlib import Path
 
 class BootSh:
     _HERE_DOC = ': <<-'
-    _SEP_DOC = ': <<_'
+    _SEP_DOC = ": <<'"
 
     def __init__(self, **kwargs):
         bootsh = Path(__file__).with_name('boot.sh')
@@ -19,7 +19,7 @@ class BootSh:
         with StringIO() as strf:
             for s in tmpl:
                 if replace_str:
-                    if s == replace_str:
+                    if s.rstrip(os.linesep) == replace_str:
                         replace_str = None
                     else:
                         k, *v = s.split('=', maxsplit=1)
@@ -28,11 +28,11 @@ class BootSh:
                         v = shlex.quote(str(v)) if v is not None else ''
                         print(f'{k}={v}', file=strf)
                 elif s.startswith(self._HERE_DOC):
-                    replace_str = s[len(self._HERE_DOC):]
+                    replace_str, = shlex.split(s[len(self._HERE_DOC):])
                 else:
                     strf.write(s)
                     if s.startswith(self._SEP_DOC):
-                        replace_str = s[len(self._SEP_DOC) - 1:]
+                        replace_str, = shlex.split(s[len(self._SEP_DOC) - 1:])
                         break
             return strf.getvalue(), replace_str, kwargs
 
@@ -40,7 +40,7 @@ class BootSh:
         with StringIO() as strf:
             for s in tmpl:
                 if replace_str:
-                    if s == replace_str:
+                    if s.rstrip(os.linesep) == replace_str:
                         strf.write(os.linesep)
                         strf.write(s)
                         for k, v in kwargs.items():
