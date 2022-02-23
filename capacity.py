@@ -13,8 +13,8 @@ def sizeof_fmt(num, suffix="B"):
 
 
 class DiscCapacity:
-    _DiscName = ('DVD+R', 'DVD+R DL', 'BD-XL TL')
-    _DiscSectors = (2295104, 4173824, 48878592)
+    _DiscName = ('DVD+R', 'DVD+R DL', 'BD-XL TL', 'BD-XL QL')
+    _DiscSectors = (2295104, 4173824, 48878592, 62500864)
 
     def __init__(self, ds):
         self.ds = ds
