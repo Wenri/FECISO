@@ -9,7 +9,6 @@ from typing import Final, Optional
 
 import numpy as np
 import psutil
-from beartype import beartype
 from tqdm import tqdm
 
 from bootsh import BootSh
@@ -45,7 +44,6 @@ class FECSetup:
         fec_preview_count = min(self.fec_roots - 1, cpu_count) if cpu_count else self.fec_roots - 1
         self.fec_preview_set = tuple(round(a.item()) for a in np.linspace(self.fec_roots, 2, num=fec_preview_count))
 
-    @beartype
     def _hs(self, ds: int, superblock=True) -> int:
         h = int(superblock)
         while ds:
@@ -53,7 +51,6 @@ class FECSetup:
             h += ds + 1
         return h
 
-    @beartype
     def _fec_len(self, ds: int, fec_roots: int) -> int:
         fec_data_bits = 255 - fec_roots
         h = ds * self._BLK_SZ
@@ -61,7 +58,6 @@ class FECSetup:
         h = h * fec_roots
         return h
 
-    @beartype
     def _combine_with_root_hash(self, hashfile: Path, fecfile: Path, root_hash: bytes, sel_roots: int) -> None:
         root_off = self.iso_s * self._BLK_SZ + self._SB_SZ
         with self.isofile.open('r+b') as isofd:
@@ -88,7 +84,6 @@ class FECSetup:
                 for i in range(cnt):
                     isofd.write(root_hash)
 
-    @beartype
     def _patch_iso(self) -> None:
         iso_size = os.path.getsize(self.isofile)
         tail_rem = iso_size % self._BLK_SZ
@@ -104,7 +99,6 @@ class FECSetup:
 
         assert iso_size + tail_rem == self.iso_s * self._BLK_SZ
 
-    @beartype
     def _checkfecsize(self) -> int:
         disc_s = self.free_s.total_s
         if disc_s < 0:
@@ -178,7 +172,6 @@ class FECSetup:
         print('Rec Calc Done.')
         return root_hash
 
-    @beartype
     def _select_lucky_fec(self):
         disc_s = self.free_s.total_s
         prev_str = None

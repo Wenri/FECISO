@@ -138,7 +138,8 @@ class ImageCreate:
                     *source, capture=True, forward=True)
 
     async def _mksquashfs(self, *source):
-        options = shlex.split('-b 1M -all-root -comp zstd -Xcompression-level 22')
+        # options = shlex.split('-b 1M -all-root -comp zstd -Xcompression-level 22')
+        options = shlex.split('-b 1M -all-root -comp xz -Xbcj x86 -Xdict-size 1M')
         return await acall('mksquashfs', *source, self.sqfs_file, *options)
 
     async def _mount_iso(self, mountpoint):
