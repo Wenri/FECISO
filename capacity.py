@@ -87,7 +87,8 @@ class VolID:
 
 class DiscID:
     _KNOWN_IDS = {
-        'VERBAT/IMk/0',
+        'VERBAT/IMk/0',  # BD-XL TL
+        'SONY/NQ1/1',  # BD-XL QL
     }
 
     def __init__(self, s: str):
