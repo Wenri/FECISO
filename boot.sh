@@ -50,9 +50,7 @@ EOF
 }
 function dm_crypt() {
   local _GETPASS_PROG
-  if [[ -z ${_DISC_ID+x} ]]; then
-    read -r _DISC_ID < <(cdrskin "dev=$IMG_DEV" -minfo | grep '^Product Id' | cut -d':' -f2-)
-  fi
+  [[ -z ${_DISC_ID+x} ]] && read -r -p "Input Disc ID: " _DISC_ID
   IFS='' read -r -d '' _GETPASS_PROG <<EOF || :
 import hashlib
 import os
@@ -115,8 +113,12 @@ function cleanup() {
     echo "_OH_MY_GBC_FS_PRESERVE is set. No cleanup"
   fi
 }
-if [[ -b "$IMG_DEV" ]] && grep -qs "$IMG_DEV" /proc/mounts; then
-  udisksctl unmount -b "$IMG_DEV" || :
+if [[ -b "$IMG_DEV" ]]; then
+  if grep -qs "$IMG_DEV" /proc/mounts; then udisksctl unmount -b "$IMG_DEV" || :; fi
+  if [[ -z ${_OH_MY_GBC_NOCRYPT+x} ]] && [[ -n "$CIPHER" ]] && [[ -z ${_DISC_ID+x} ]] &&
+    read -r _DISC_ID < <(cdrskin "dev=$IMG_DEV" -minfo | grep '^Product Id' | cut -d':' -f2-); then
+    echo "Disc ID is $_DISC_ID"
+  fi
 fi
 trap cleanup EXIT
 DM_FILE="$IMG_DEV"
