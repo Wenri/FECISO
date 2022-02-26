@@ -12,8 +12,12 @@ VARS_END
 This block will be replaced with optional kwargs and be placed after MBR record.
 _MBR_SEP
 IMG_DEV="${BASH_SOURCE[0]}"
-[[ "$(id -u)" -eq "0" ]] || exec sudo bash "$IMG_DEV"
-
+[[ "$(id -u)" -eq "0" ]] || exec sudo bash "$IMG_DEV" "$@"
+if [ "$#" -eq 1 ]; then
+  IMG_DEV="$1"
+  # shellcheck source=boot.sh
+  source <(sed -n "/IMG_DEV=/q;p" "$IMG_DEV" | tr -d '\0')
+fi
 function dm_verity() {
   local ROOT_HASH
   local FEC_ROOTS
